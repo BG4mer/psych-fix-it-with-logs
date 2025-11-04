@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Fix It With Logs — Prototype</title>
+  <style>
+    :root{--bg:#0f1115;--card:#15181d;--muted:#9aa4b2;--accent:#7dd3fc}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial}
+    body{background:linear-gradient(180deg,#071021 0%, #0f1115 100%);color:#e6eef6;padding:18px}
+    .wrap{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:1fr;gap:14px}
+    header{display:flex;gap:12px;align-items:center}
+    h1{font-size:18px;margin:0}
+    .panel{background:var(--card);padding:12px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.6)}
+    .row{display:flex;gap:12px}
+    textarea{width:100%;height:180px;background:#06070a;border:1px solid #222;color:#dff;resize:vertical;padding:12px;border-radius:8px}
+    button{background:linear-gradient(90deg,var(--accent),#60a5fa);border:0;padding:8px 12px;border-radius:8px;color:#001;cursor:pointer}
+    .muted{color:var(--muted);font-size:13px}
+    .out {white-space:pre-wrap;background:#05060a;padding:10px;border-radius:8px;border:1px solid #222;color:#e6eef6;min-height:120px}
+    .flex-split{display:grid;grid-template-columns:1fr 420px;gap:12px}
+    .controls{display:flex;gap:8px;align-items:center}
+    .small{font-size:13px;padding:6px 8px}
+    .editor{height:220px;overflow:auto;background:#06070a;border-radius:8px;padding:8px;border:1px solid #222}
+    .canvas-wrap{background:#000;border-radius:8px;padding:8px}
+    .comments{max-height:220px;overflow:auto}
+    .comment{border-top:1px solid rgba(255,255,255,.03);padding:8px 0}
+    .comment .meta{font-size:12px;color:var(--muted)}
+    .tag{background:rgba(125,211,252,.08);padding:4px 8px;border-radius:999px;color:var(--accent);font-size:12px}
+    footer{display:flex;justify-content:space-between;align-items:center}
+    @media(max-width:980px){.flex-split{grid-template-columns:1fr} .row{flex-direction:column}} 
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <span class="tag">Prototype</span>
+      <h1>Fix It With Logs — paste Psych Engine shader logs</h1>
+      <div style="margin-left:auto" class="muted">Prototype: Haxe-style fixer + WebGL shader tester</div>
+    </header>
+
+    <section class="panel">
+      <div class="muted">Paste your log below. The analyzer will try to detect shader errors (frag/vert) and offer auto-fixes using the built-in "Haxe fixer" (simulated) and quick regex-based repairs. You can preview fragment shaders in the demo canvas.</div>
+      <div style="height:10px"></div>
+      <textarea id="logInput" placeholder="Paste Psych Engine logs / shader compiler output here"></textarea>
+      <div style="height:8px"></div>
+      <div class="row">
+        <div class="controls">
+          <button id="analyzeBtn">Fix It!</button>
+          <button id="clearBtn" class="small">Clear</button>
+          <label class="muted small" style="margin-left:8px">Mode:</label>
+          <select id="mode" class="small">
+            <option value="regex">Quick regex fix</option>
+            <option value="haxe">Haxe-style fixer</option>
+            <option value="ai-sim">AI-sim (heuristic)</option>
+          </select>
+        </div>
+        <div style="margin-left:auto" class="muted">Detected: <span id="detected">none</span></div>
+      </div>
+    </section>
+
+    <section class="panel flex-split">
+      <div>
+        <h3 style="margin:0 0 8px 0">Fix / Output</h3>
+        <div id="output" class="out">No output yet.</div>
+        <div style="height:10px"></div>
+        <div class="muted">Quick actions:</div>
+        <div style="height:8px"></div>
+        <div class="row">
+          <button id="copyFix">Copy Fix</button>
+          <button id="downloadFix" class="small">Download .frag</button>
+          <button id="applyToEditor" class="small">Apply to Shader Editor</button>
+        </div>
+      </div>
+
+      <div>
+        <h3 style="margin:0 0 8px 0">Fragment Shader Tester</h3>
+        <div class="panel" style="padding:8px; margin:0;">
+          <div class="editor" contenteditable id="fragEditor">// example fragment shader
+precision mediump float;
+uniform float u_time;
+uniform vec2 u_resolution;
+
+void main(){
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  gl_FragColor = vec4(uv, 0.5 + 0.5*sin(u_time), 1.0);
+}
+</div>
+          <div style="height:10px"></div>
+          <div class="row">
+            <button id="compileShader">Compile & Run</button>
+            <button id="stopShader" class="small">Stop</button>
+            <button id="getErrors" class="small">Show Compile Log</button>
+          </div>
+          <div style="height:8px"></div>
+          <div class="canvas-wrap"><canvas id="glCanvas" width="400" height="240"></canvas></div>
+          <div style="height:8px"></div>
+          <div id="shaderLog" class="muted">Shader compile log will appear here.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3 style="margin:0 0 8px 0">Community Comments (local)</h3>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <input id="username" placeholder="name" style="padding:6px;border-radius:8px;background:#060609;border:1px solid #222;color:#eef;" />
+        <input id="commentInput" placeholder="quick comment / tip" style="flex:1;padding:6px;border-radius:8px;background:#060609;border:1px solid #222;color:#eef;" />
+        <button id="postComment">Post</button>
+      </div>
+      <div class="comments" id="comments"></div>
+    </section>
+
+    <footer class="muted panel">
+      <div>Local prototype — comments saved to browser localStorage. Use this as a starting point for server integration (Firebase / Supabase / custom API).</div>
+      <div></div>
+    </footer>
+  </div>
+
+  <script>
+    // --- Utilities ---
+    const el = id => document.getElementById(id);
+    const logInput = el('logInput');
+    const analyzeBtn = el('analyzeBtn');
+    const output = el('output');
+    const detected = el('detected');
+    const fragEditor = el('fragEditor');
+    const compileShaderBtn = el('compileShader');
+    const glCanvas = el('glCanvas');
+    const shaderLog = el('shaderLog');
+
+    // --- Simple detectors ---
+    function detectIssues(text){
+      const issues = [];
+      if(/error:\s*([\s\S]*?)\n/i.test(text)) issues.push('shader-compile-error');
+      if(/invalid\s+uniform/i.test(text)) issues.push('invalid-uniform');
+      if(/precision\s+qualifier/i.test(text)) issues.push('precision-issue');
+      if(/unknown\s+identifier/i.test(text)) issues.push('unknown-identifier');
+      if(/fragment\s+shader\s+error/i.test(text)) issues.push('frag-error');
+      if(/vertex\s+shader\s+error/i.test(text)) issues.push('vert-error');
+      if(/syntax\s+error/i.test(text)) issues.push('syntax-error');
+      // look for common GLES errors
+      if(/\bmediump\b|\blowp\b/i.test(text)) issues.push('precision-declared');
+      return Array.from(new Set(issues));
+    }
+
+    // --- Quick regex fixer ---
+    function quickFix(text){
+      let out = text;
+      // common replacement: stray Windows CR or weird quotes
+      out = out.replace(/\r\n/g,'\n');
+      out = out.replace(/[“”]/g,'"').replace(/[‘’]/g,"'");
+      // remove stray control chars
+      out = out.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'');
+      return out;
+    }
+
+    // --- Haxe-style fixer (simulated) ---
+    function haxeFix(text){
+      // This is a front-end simulation of what a Haxe API might do.
+      // - Extract error lines
+      // - Try to suggest replacements for common GLSL mistakes
+      const lines = text.split('\n');
+      const suggestions = [];
+      const compiled = [];
+      for(const ln of lines){
+        compiled.push(ln);
+        // match unknown identifier hints
+        let m;
+        if(m = ln.match(/error:\s*'(\w+)'\s*\:\s*unknown\s+identifier/i)){
+          suggestions.push(`Declared missing uniform ${m[1]}; add: uniform float ${m[1]};`);
+        }
+        if(m = ln.match(/invalid\s+precision:\s*(\w+)/i)){
+          suggestions.push('Replace invalid precision with mediump or highp depending on target: e.g. precision mediump float;');
+        }
+        if(/expected\s*';'/.test(ln)){
+          suggestions.push('Check for missing semicolons near the reported line.');
+        }
+      }
+      // naive automatic patch: ensure precision exists
+      let joined = compiled.join('\n');
+      if(!/precision\s+\w+\s+float\s*;/.test(joined)){
+        joined = 'precision mediump float;\n' + joined;
+        suggestions.unshift('Added `precision mediump float;` at top.');
+      }
+      return {fixed: joined, suggestions};
+    }
+
+    // --- AI-sim heuristic ---
+    function aiSimFix(text){
+      // heuristic combining regex fix + better variable fix
+      let out = quickFix(text);
+      // if an "invalid uniform" exists, attempt to declare it as float
+      const missing = out.match(/unknown\s+identifier\s*\'(\w+)\'/ig);
+      if(missing){
+        const names = [...new Set(missing.map(x=>x.replace(/unknown\s+identifier\s*\'|'|unknown\s+identifier/ig,'')))]
+        .map(s=>s.trim()).filter(Boolean);
+        for(const n of names) out = `uniform float ${n};\n` + out;
+      }
+      return {fixed: out, suggestions: ['Applied heuristics: added missing uniforms as float, cleaned control chars.']};
+    }
+
+    analyzeBtn.addEventListener('click', ()=>{
+      const txt = logInput.value || '';
+      const mode = el('mode').value;
+      const issues = detectIssues(txt);
+      detected.textContent = issues.length ? issues.join(', ') : 'none';
+      if(mode === 'regex'){
+        const fixed = quickFix(txt);
+        output.textContent = fixed;
+      } else if(mode === 'haxe'){
+        const res = haxeFix(txt);
+        output.textContent = '// Suggestions:\n' + res.suggestions.join('\n') + '\n\n// Fixed result:\n' + res.fixed;
+      } else {
+        const res = aiSimFix(txt);
+        output.textContent = '// AI-sim suggestions:\n' + res.suggestions.join('\n') + '\n\n' + res.fixed;
+      }
+    });
+
+    el('clearBtn').addEventListener('click', ()=>{logInput.value=''; output.textContent='No output yet.'; detected.textContent='none';});
+    el('copyFix').addEventListener('click', ()=>{navigator.clipboard.writeText(output.textContent||'');});
+    el('applyToEditor').addEventListener('click', ()=>{fragEditor.innerText = output.textContent || fragEditor.innerText;});
+    el('downloadFix').addEventListener('click', ()=>{
+      const blob = new Blob([output.textContent || ''], {type:'text/plain'});
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'fixed.frag'; a.click(); URL.revokeObjectURL(a.href);
+    });
+
+    // --- comments (localStorage) ---
+    const commentsKey = 'fixit_comments_v1';
+    function loadComments(){
+      const raw = localStorage.getItem(commentsKey);
+      return raw ? JSON.parse(raw) : [];
+    }
+    function saveComments(list){ localStorage.setItem(commentsKey, JSON.stringify(list)); }
+    function renderComments(){
+      const list = loadComments();
+      const outEl = el('comments'); outEl.innerHTML = '';
+      for(const c of list.slice().reverse()){
+        const d = document.createElement('div'); d.className='comment';
+        d.innerHTML = `<div class=meta>${escapeHtml(c.user||'anon')} • ${new Date(c.t).toLocaleString()}</div><div>${escapeHtml(c.text)}</div>`;
+        outEl.appendChild(d);
+      }
+    }
+    function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    el('postComment').addEventListener('click', ()=>{
+      const user = el('username').value || 'anon';
+      const text = el('commentInput').value || '';
+      if(!text.trim()) return;
+      const list = loadComments(); list.push({user,text,t:Date.now()}); saveComments(list); el('commentInput').value=''; renderComments();
+    });
+    renderComments();
+
+    // --- WebGL shader compile & run ---
+    let gl=null, program=null, raf=0, startTime=0;
+    function initGL(){ gl = glCanvas.getContext('webgl'); if(!gl) gl = glCanvas.getContext('experimental-webgl'); }
+    function compileAndRun(source){
+      if(!gl) initGL(); if(!gl) { shaderLog.textContent = 'WebGL not supported'; return; }
+      // vertex shader (simple passthrough)
+      const vsSrc = 'attribute vec2 a_pos; void main(){ gl_Position = vec4(a_pos,0.0,1.0); }';
+      function makeShader(type, src){ const sh = gl.createShader(type); gl.shaderSource(sh,src); gl.compileShader(sh); if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)){ const err = gl.getShaderInfoLog(sh); gl.deleteShader(sh); throw err; } return sh; }
+      try{
+        const vs = makeShader(gl.VERTEX_SHADER, vsSrc);
+        const fs = makeShader(gl.FRAGMENT_SHADER, source);
+        if(program) gl.deleteProgram(program);
+        program = gl.createProgram(); gl.attachShader(program,vs); gl.attachShader(program,fs); gl.linkProgram(program);
+        if(!gl.getProgramParameter(program, gl.LINK_STATUS)) throw gl.getProgramInfoLog(program);
+        shaderLog.textContent = 'Compiled OK.';
+      }catch(e){ shaderLog.textContent = 'Compile error:\n' + e; return; }
+      // prepare buffer
+      const buffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      const verts = new Float32Array([-1,-1, 1,-1, -1,1, 1,1]); gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+      gl.viewport(0,0,glCanvas.width,glCanvas.height);
+      gl.useProgram(program);
+      const aPos = gl.getAttribLocation(program,'a_pos'); gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,0,0);
+      const uRes = gl.getUniformLocation(program,'u_resolution'); const uTime = gl.getUniformLocation(program,'u_time');
+      startTime = performance.now();
+      cancelAnimationFrame(raf);
+      function frame(){
+        const t = (performance.now()-startTime)/1000;
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        if(uRes) gl.uniform2f(uRes, glCanvas.width, glCanvas.height);
+        if(uTime) gl.uniform1f(uTime, t);
+        gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+        raf = requestAnimationFrame(frame);
+      }
+      raf = requestAnimationFrame(frame);
+    }
+    compileShaderBtn.addEventListener('click', ()=>{
+      const src = fragEditor.innerText;
+      compileAndRun(src);
+    });
+    el('stopShader').addEventListener('click', ()=>{ cancelAnimationFrame(raf); shaderLog.textContent='Stopped.'; });
+    el('getErrors').addEventListener('click', ()=>{ alert(shaderLog.textContent || 'No log'); });
+
+    // --- Save/Load example for editor ---
+    fragEditor.addEventListener('input', ()=>{ localStorage.setItem('fixit_frag', fragEditor.innerText); });
+    if(localStorage.getItem('fixit_frag')) fragEditor.innerText = localStorage.getItem('fixit_frag');
+
+    // --- small helpers for demo logs ---
+    // Example ergonomics: double-click on a line in the log to copy it into the editor
+    logInput.addEventListener('dblclick', (ev)=>{
+      const sel = window.getSelection().toString().trim(); if(sel) fragEditor.innerText = sel;
+    });
+
+    // End of script
+  </script>
+</body>
+</html>
